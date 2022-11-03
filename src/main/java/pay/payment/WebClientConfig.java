@@ -5,11 +5,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
-public class AppConfig {
+public class WebClientConfig {
 
     @Bean
     public WebClient webClient(){
-        return WebClient.create("https://testapi.openbanking.or.kr/v2.0");
+        return WebClient.create("https://testapi.openbanking.or.kr");
     }
 
 }
