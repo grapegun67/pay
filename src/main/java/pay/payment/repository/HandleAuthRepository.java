@@ -19,8 +19,7 @@ public class HandleAuthRepository {
         em.persist(clientAuthData);
     }
 
-    public ClientAuthData findToken(String userId) {
+    public ClientAuthData findUser(String userId) {
         return em.find(ClientAuthData.class, userId);
     }
-
 }
