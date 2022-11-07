@@ -18,7 +18,4 @@ public class ClientAuthData {
     private String refresh_token;
     private String user_seq_no;
 
-    @Enumerated(EnumType.STRING)
-    private EnrollType enrollType;
-
 }

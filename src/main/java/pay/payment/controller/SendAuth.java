@@ -15,13 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.client.WebClient;
 import pay.payment.WebClientConfig;
 import pay.payment.domain.ClientAuthData;
-import pay.payment.domain.EnrollType;
 import pay.payment.repository.HandleAuthRepository;
 import reactor.core.publisher.Mono;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -30,8 +27,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SendAuth {
 
-    private String CLIENT_ID = "****";
-    private String CLIENT_SECRET = "****";
+    private String CLIENT_ID = "1f64fe42-b794-41c3-8362-c76e3f0f4776";
+    private String CLIENT_SECRET = "a387237a-9189-45b8-805d-6aaf9bb636ca";
 
     AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(WebClientConfig.class);
     WebClient webClient = (WebClient) ac.getBean("webClient");
@@ -46,7 +43,7 @@ public class SendAuth {
         params.add("client_id", CLIENT_ID);
         params.add("redirect_uri", "http://localhost:8080/auth-return");
         params.add("scope", "login inquiry");
-        params.add("state", "9876543245671234utrg986fff235245");
+        params.add("state", "9876543245671234utag986fff235245");
         params.add("auth_type", "0");
 
         // toEntity에서 body로 바꾸면 헤더까지는 굳이 response 안해도될지도
@@ -58,27 +55,30 @@ public class SendAuth {
     }
 
     @GetMapping("/auth-return")
-    public String getAuth(@ModelAttribute AuthClass authClass){
+    public String getAuth(@ModelAttribute AuthClass authClass) {
 
         log.info("ktfc_result1: {}, {}, {}", authClass.getCode(), authClass.getScope(), authClass.getState());
 
         MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
         ClientAuthData user = handleAuthRepository.findUser(CLIENT_ID);
 
-        /* 미등록인 경우 새로운 토큰 요청 */
-        if (user.getEnrollType() == EnrollType.UNREGISTERED) {
+        /* 신규 요청 */
+        if (user == null) {
+            log.info("debug_new register");
+            user = new ClientAuthData();
             formData.add("code", authClass.getCode());
             formData.add("client_id", CLIENT_ID);
             formData.add("client_secret", CLIENT_SECRET);
             formData.add("redirect_uri", "http://localhost:8080/auth-return");
             formData.add("grant_type", "authorization_code");
         }
-        /* 기등록인 경우 토큰 갱신 요청 */
+        /* 토큰 갱신 요청 */
         else {
+            log.info("debug_update register");
             formData.add("client_id", CLIENT_ID);
             formData.add("client_secret", CLIENT_SECRET);
             formData.add("refresh_token", user.getRefresh_token());
-            formData.add("scope", "login inquiry transfer");
+            formData.add("scope", "login inquiry");
             formData.add("grant_type", "refresh_token");
         }
 
@@ -89,17 +89,21 @@ public class SendAuth {
                 .retrieve().bodyToMono(TokenClass.class).block();
 
         //토큰 저장
-        ClientAuthData clientAuthData = new ClientAuthData();
-        clientAuthData.setId(CLIENT_ID);
-        clientAuthData.setAccess_token(tokenClass.access_token);
-        clientAuthData.setRefresh_token(tokenClass.refresh_token);
-        clientAuthData.setUser_seq_no(tokenClass.user_seq_no);
-        clientAuthData.setEnrollType(EnrollType.REGISTERED);
+        log.info("error start");
+        user.setId(CLIENT_ID);
+        user.setAccess_token(tokenClass.access_token);
+        user.setRefresh_token(tokenClass.refresh_token);
+        user.setUser_seq_no(tokenClass.user_seq_no);
 
-        handleAuthRepository.saveToken(clientAuthData);
+        if (tokenClass != null) {
+            log.info("debug no null");
+            handleAuthRepository.saveToken(user);
+        }
+        else {
+            return "no okay";
+        }
 
         log.info("ktfc_result2: {}, {}, {}, {}, {}, {}", tokenClass.access_token, tokenClass.refresh_token, tokenClass.token_type, tokenClass.expires_in, tokenClass.user_seq_no, tokenClass.scope);
-
         String bear = "Bearer " + tokenClass.access_token;
 
         //계좌 조회
@@ -122,14 +126,13 @@ public class SendAuth {
         params2.add("fintech_use_num", res_list.get(0).fintech_use_num);
         params2.add("tran_dtime", dateTime);
 
-        //log.info("ktfc_result5 {} {} {}", res_list.get(1).fintech_use_num, dateTime);
-
         AccountBalance balance = webClient.get()
                 .uri(uriBuilder -> uriBuilder.path("v2.0/account/balance/fin_num")
                         .queryParams(params2).build()).header("Authorization", bear).retrieve().bodyToMono(AccountBalance.class).block();
 
         log.info("ktfc_result6 {}, {}, {}, {}", balance.bank_name, balance.balance_amt, balance.product_name, balance.bank_rsp_message);
 
+        formData.clear();
         return "ok";
     }
 
@@ -144,8 +147,9 @@ public class SendAuth {
     static class TokenClass {
         private String access_token;
         private String token_type;
-        private String refresh_token;
         private String expires_in;
+        private String refresh_token;
+
         private String scope;
         private String user_seq_no;
     }
