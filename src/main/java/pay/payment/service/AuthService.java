@@ -3,20 +3,20 @@ package pay.payment.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import pay.payment.domain.ClientAuthData;
-import pay.payment.repository.HandleAuthRepository;
+import pay.payment.repository.ClientAuthRepository;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final HandleAuthRepository handleAuthRepository;
+    private final ClientAuthRepository clientAuthRepository;
 
     public void saveAuth(ClientAuthData clientAuthData) {
-        handleAuthRepository.saveToken(clientAuthData);
+        clientAuthRepository.saveToken(clientAuthData);
     }
 
     public ClientAuthData findClientAuth(String user_id) {
-        return handleAuthRepository.findUser(user_id);
+        return clientAuthRepository.findUser(user_id);
     }
 
 }

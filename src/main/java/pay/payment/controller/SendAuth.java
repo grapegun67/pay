@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.client.WebClient;
 import pay.payment.WebClientConfig;
 import pay.payment.domain.ClientAuthData;
-import pay.payment.repository.HandleAuthRepository;
+import pay.payment.repository.ClientAuthRepository;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
@@ -33,9 +33,9 @@ public class SendAuth {
     AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(WebClientConfig.class);
     WebClient webClient = (WebClient) ac.getBean("webClient");
 
-    private final HandleAuthRepository handleAuthRepository;
+    private final ClientAuthRepository clientAuthRepository;
 
-    @GetMapping("/auth-function")
+    @GetMapping("/auth/gate")
     public Mono<ResponseEntity<String>> authFunction() {
 
         MultiValueMap<String, String > params = new LinkedMultiValueMap<>();
@@ -60,7 +60,7 @@ public class SendAuth {
         log.info("ktfc_result1: {}, {}, {}", authClass.getCode(), authClass.getScope(), authClass.getState());
 
         MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        ClientAuthData user = handleAuthRepository.findUser(CLIENT_ID);
+        ClientAuthData user = clientAuthRepository.findUser(CLIENT_ID);
 
         /* 신규 요청 */
         if (user == null) {
@@ -97,19 +97,29 @@ public class SendAuth {
 
         if (tokenClass != null) {
             log.info("debug no null");
-            handleAuthRepository.saveToken(user);
+            clientAuthRepository.saveToken(user);
         }
         else {
             return "no okay";
         }
 
         log.info("ktfc_result2: {}, {}, {}, {}, {}, {}", tokenClass.access_token, tokenClass.refresh_token, tokenClass.token_type, tokenClass.expires_in, tokenClass.user_seq_no, tokenClass.scope);
-        String bear = "Bearer " + tokenClass.access_token;
+
+        return "ok";
+    }
+
+    @GetMapping
+    public String GetAccountInfo () {
+        ClientAuthData user = clientAuthRepository.findUser(CLIENT_ID);
+        if (user == null)
+            return "no okay";
+
+        String bear = "Bearer " + user.getAccess_token();
 
         //계좌 조회
         UserAccountInfo accountInfo = webClient.get()
                 .uri(uriBuilder -> uriBuilder.path("v2.0/user/me")
-                        .queryParam("user_seq_no", tokenClass.user_seq_no).build()).header("Authorization", bear).retrieve().bodyToMono(UserAccountInfo.class).block();
+                        .queryParam("user_seq_no", user.getUser_seq_no()).build()).header("Authorization", bear).retrieve().bodyToMono(UserAccountInfo.class).block();
 
         log.info("ktfc_result3 {}, {}, {}", accountInfo.res_cnt, accountInfo.user_name, accountInfo.api_tran_id);
 
@@ -117,6 +127,18 @@ public class SendAuth {
         for (UserAccountInfoList list : res_list) {
             log.info("ktfc_result4 {}, {}, {}", list.fintech_use_num, list.account_alias, list.bank_name);
         }
+
+        return "okay";
+    }
+
+    @GetMapping
+    public String GetBalance() {
+
+        ClientAuthData user = clientAuthRepository.findUser(CLIENT_ID);
+        if (user == null)
+            return "no okay";
+
+        String bear = "Bearer " + user.getAccess_token();
 
         // 계좌 잔액 조회
         // 이런 날짜까지도 에러처리를 해야하네. 에러처리가 굉장히 세심해야되네... 그냥 막실행하네
@@ -132,8 +154,7 @@ public class SendAuth {
 
         log.info("ktfc_result6 {}, {}, {}, {}", balance.bank_name, balance.balance_amt, balance.product_name, balance.bank_rsp_message);
 
-        formData.clear();
-        return "ok";
+        return "okay";
     }
 
     @Getter @Setter

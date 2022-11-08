@@ -10,7 +10,7 @@ import javax.persistence.EntityManager;
 @Repository
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class HandleAuthRepository {
+public class ClientAuthRepository {
 
     private final EntityManager em;
 
