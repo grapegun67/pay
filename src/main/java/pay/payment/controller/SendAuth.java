@@ -14,35 +14,39 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.client.WebClient;
 import pay.payment.WebClientConfig;
-import pay.payment.domain.ClientAuthData;
-import pay.payment.repository.ClientAuthRepository;
+import pay.payment.domain.AuthData;
+import pay.payment.domain.AccountList;
+import pay.payment.repository.AccountRepository;
+import pay.payment.repository.AuthRepository;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Random;
 
 @Slf4j
 @RestController
 @RequiredArgsConstructor
 public class SendAuth {
 
-    private String CLIENT_ID = "****";
-    private String CLIENT_SECRET = "*****";
+    private String CLIENT_ID = "c02f89fe-c2c8-439f-bdd8-e68c4dded376";
+    private String CLIENT_SECRET = "afe2363b-f9e3-42f9-9a1b-c029248fed3b";
 
     AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(WebClientConfig.class);
     WebClient webClient = (WebClient) ac.getBean("webClient");
 
-    private final ClientAuthRepository clientAuthRepository;
+    private final AuthRepository authRepository;
+    private final AccountRepository accountRepository;
 
     @GetMapping("/auth/gate")
-    public Mono<ResponseEntity<String>> authFunction() {
+    public Mono<ResponseEntity<String>> authGate() {
 
         MultiValueMap<String, String > params = new LinkedMultiValueMap<>();
         params.add("response_type", "code");
         params.add("client_id", CLIENT_ID);
-        params.add("redirect_uri", "http://localhost:8080/auth-return");
-        params.add("scope", "login inquiry");
+        params.add("redirect_uri", "http://localhost:8080/auth/gate/main");
+        params.add("scope", "login inquiry transfer");
         params.add("state", "9876543245671234utag986fff235245");
         params.add("auth_type", "0");
 
@@ -54,31 +58,32 @@ public class SendAuth {
        return responseEntityMono;
     }
 
-    @GetMapping("/auth-return")
-    public String getAuth(@ModelAttribute AuthClass authClass) {
+    @GetMapping("/auth/gate/main")
+    public String getMain(@ModelAttribute AuthClass authClass) {
 
         log.info("ktfc_result1: {}, {}, {}", authClass.getCode(), authClass.getScope(), authClass.getState());
 
         MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        ClientAuthData user = clientAuthRepository.findUser(CLIENT_ID);
+        AuthData user = authRepository.findUser(CLIENT_ID);
 
         /* 신규 요청 */
         if (user == null) {
             log.info("debug_new register");
-            user = new ClientAuthData();
+            user = new AuthData();
             formData.add("code", authClass.getCode());
             formData.add("client_id", CLIENT_ID);
             formData.add("client_secret", CLIENT_SECRET);
-            formData.add("redirect_uri", "http://localhost:8080/auth-return");
+            formData.add("redirect_uri", "http://localhost:8080/auth/gate/main");
             formData.add("grant_type", "authorization_code");
         }
-        /* 토큰 갱신 요청 */
+        /* 토큰 갱신 요청                         */
+        /* 사실 반드시 갱신할 필요는 없는데          */
         else {
             log.info("debug_update register");
             formData.add("client_id", CLIENT_ID);
             formData.add("client_secret", CLIENT_SECRET);
             formData.add("refresh_token", user.getRefresh_token());
-            formData.add("scope", "login inquiry");
+            formData.add("scope", "login inquiry transfer");
             formData.add("grant_type", "refresh_token");
         }
 
@@ -89,7 +94,6 @@ public class SendAuth {
                 .retrieve().bodyToMono(TokenClass.class).block();
 
         //토큰 저장
-        log.info("error start");
         user.setId(CLIENT_ID);
         user.setAccess_token(tokenClass.access_token);
         user.setRefresh_token(tokenClass.refresh_token);
@@ -97,7 +101,7 @@ public class SendAuth {
 
         if (tokenClass != null) {
             log.info("debug no null");
-            clientAuthRepository.saveToken(user);
+            authRepository.saveToken(user);
         }
         else {
             return "no okay";
@@ -108,9 +112,9 @@ public class SendAuth {
         return "ok";
     }
 
-    @GetMapping
-    public String GetAccountInfo () {
-        ClientAuthData user = clientAuthRepository.findUser(CLIENT_ID);
+    @GetMapping("/account/list")
+    public String GetAccountList () {
+        AuthData user = authRepository.findUser(CLIENT_ID);
         if (user == null)
             return "no okay";
 
@@ -124,28 +128,42 @@ public class SendAuth {
         log.info("ktfc_result3 {}, {}, {}", accountInfo.res_cnt, accountInfo.user_name, accountInfo.api_tran_id);
 
         List<UserAccountInfoList> res_list = accountInfo.getRes_list();
+        AccountList accountList = new AccountList();
+
+        /* 새로운 fintech 번호만 넣는 것으로 수정해야함 */
         for (UserAccountInfoList list : res_list) {
+            accountList.setUser_id(CLIENT_ID);
+            accountList.setFintech_use_num(list.fintech_use_num);
             log.info("ktfc_result4 {}, {}, {}", list.fintech_use_num, list.account_alias, list.bank_name);
         }
+
+        accountRepository.saveAccount(accountList);
 
         return "okay";
     }
 
-    @GetMapping
-    public String GetBalance() {
+    @GetMapping("/balance")
+    public String getBalance() {
 
-        ClientAuthData user = clientAuthRepository.findUser(CLIENT_ID);
+        AuthData user = authRepository.findUser(CLIENT_ID);
         if (user == null)
-            return "no okay";
+            return "no okay1";
+
+        List<AccountList> accountList = accountRepository.findAccount(CLIENT_ID);
+        if (accountList == null)
+            return "no okay2";
 
         String bear = "Bearer " + user.getAccess_token();
 
         // 계좌 잔액 조회
         // 이런 날짜까지도 에러처리를 해야하네. 에러처리가 굉장히 세심해야되네... 그냥 막실행하네
         String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String tran_id = "M202202182U" + getRandomStr(9);
+        log.info("tran_debug: {}", tran_id);
+
         MultiValueMap<String, String> params2 = new LinkedMultiValueMap<>();
-        params2.add("bank_tran_id", "M202201993U12345678A");
-        params2.add("fintech_use_num", res_list.get(0).fintech_use_num);
+        params2.add("bank_tran_id", tran_id);
+        params2.add("fintech_use_num", accountList.get(0).getFintech_use_num());
         params2.add("tran_dtime", dateTime);
 
         AccountBalance balance = webClient.get()
@@ -229,6 +247,24 @@ public class SendAuth {
         private String account_issue_date;
         private String maturity_date;
         private String last_tran_date;
+    }
+
+
+    public static String getRandomStr(int size) {
+        if(size > 0) {
+            char[] tmp = new char[size];
+            for(int i=0; i<tmp.length; i++) {
+                int div = (int) Math.floor( Math.random() * 2 );
+
+                if(div == 0) { // 0이면 숫자로
+                    tmp[i] = (char) (Math.random() * 10 + '0') ;
+                }else { //1이면 알파벳
+                    tmp[i] = (char) (Math.random() * 26 + 'A') ;
+                }
+            }
+            return new String(tmp);
+        }
+        return "ERROR : Size is required.";
     }
 
 }

@@ -2,21 +2,21 @@ package pay.payment.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import pay.payment.domain.ClientAuthData;
-import pay.payment.repository.ClientAuthRepository;
+import pay.payment.domain.AuthData;
+import pay.payment.repository.AuthRepository;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final ClientAuthRepository clientAuthRepository;
+    private final AuthRepository authRepository;
 
-    public void saveAuth(ClientAuthData clientAuthData) {
-        clientAuthRepository.saveToken(clientAuthData);
+    public void saveAuth(AuthData authData) {
+        authRepository.saveToken(authData);
     }
 
-    public ClientAuthData findClientAuth(String user_id) {
-        return clientAuthRepository.findUser(user_id);
+    public AuthData findClientAuth(String user_id) {
+        return authRepository.findUser(user_id);
     }
 
 }

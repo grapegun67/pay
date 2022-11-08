@@ -3,23 +3,26 @@ package pay.payment.repository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import pay.payment.domain.ClientAuthData;
+import pay.payment.domain.AccountList;
 
 import javax.persistence.EntityManager;
+import java.util.List;
 
 @Repository
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class ClientAuthRepository {
+public class AccountRepository {
 
     private final EntityManager em;
 
     @Transactional
-    public void saveToken(ClientAuthData clientAuthData) {
-        em.persist(clientAuthData);
+    public void saveAccount(AccountList accountList){
+        em.persist(accountList);
     }
 
-    public ClientAuthData findUser(String userId) {
-        return em.find(ClientAuthData.class, userId);
+    public List<AccountList> findAccount(String userId){
+        return em.createQuery("select a from AccountList a", AccountList.class)
+                .getResultList();
     }
+
 }

@@ -7,7 +7,7 @@ import javax.persistence.*;
 
 @Entity
 @Getter @Setter
-public class ClientAuthData {
+public class AuthData {
 
     @Id @Column(name = "user_id")
     private String id;
