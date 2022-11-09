@@ -45,7 +45,7 @@ public class SendAuth {
         MultiValueMap<String, String > params = new LinkedMultiValueMap<>();
         params.add("response_type", "code");
         params.add("client_id", CLIENT_ID);
-        params.add("redirect_uri", "http://localhost:8080/auth/gate/main");
+        params.add("redirect_uri", "http://localhost:8080/auth/gate/new");
         params.add("scope", "login inquiry transfer");
         params.add("state", "9876543245671234utag986fff235245");
         params.add("auth_type", "0");
@@ -58,34 +58,21 @@ public class SendAuth {
        return responseEntityMono;
     }
 
-    @GetMapping("/auth/gate/main")
+    @GetMapping("/auth/gate/new")
     public String getMain(@ModelAttribute AuthClass authClass) {
-
         log.info("ktfc_result1: {}, {}, {}", authClass.getCode(), authClass.getScope(), authClass.getState());
 
+        AuthData user = new AuthData();
         MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        AuthData user = authRepository.findUser(CLIENT_ID);
 
         /* 신규 요청 */
-        if (user == null) {
-            log.info("debug_new register");
-            user = new AuthData();
-            formData.add("code", authClass.getCode());
-            formData.add("client_id", CLIENT_ID);
-            formData.add("client_secret", CLIENT_SECRET);
-            formData.add("redirect_uri", "http://localhost:8080/auth/gate/main");
-            formData.add("grant_type", "authorization_code");
-        }
-        /* 토큰 갱신 요청                         */
-        /* 사실 반드시 갱신할 필요는 없는데          */
-        else {
-            log.info("debug_update register");
-            formData.add("client_id", CLIENT_ID);
-            formData.add("client_secret", CLIENT_SECRET);
-            formData.add("refresh_token", user.getRefresh_token());
-            formData.add("scope", "login inquiry transfer");
-            formData.add("grant_type", "refresh_token");
-        }
+        log.info("debug_new register");
+
+        formData.add("code", authClass.getCode());
+        formData.add("client_id", CLIENT_ID);
+        formData.add("client_secret", CLIENT_SECRET);
+        formData.add("redirect_uri", "http://localhost:8080/auth/gate/new");
+        formData.add("grant_type", "authorization_code");
 
         TokenClass tokenClass = webClient.post()
                 .uri("/oauth/2.0/token")
@@ -112,6 +99,44 @@ public class SendAuth {
         return "ok";
     }
 
+    @GetMapping("/auth/gate/old")
+    public String AuthGateOld() {
+        log.info("debug_update register");
+
+        AuthData user = authRepository.findUser(CLIENT_ID);
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+
+        /* 토큰 갱신 요청                         */
+        formData.add("client_id", CLIENT_ID);
+        formData.add("client_secret", CLIENT_SECRET);
+        formData.add("refresh_token", user.getRefresh_token());
+        formData.add("scope", "login inquiry transfer");
+        formData.add("grant_type", "refresh_token");
+
+        TokenClass tokenClass = webClient.post()
+                .uri("/oauth/2.0/token")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .bodyValue(formData)
+                .retrieve().bodyToMono(TokenClass.class).block();
+
+        //토큰 저장
+        user.setId(CLIENT_ID);
+        user.setAccess_token(tokenClass.access_token);
+        user.setRefresh_token(tokenClass.refresh_token);
+        user.setUser_seq_no(tokenClass.user_seq_no);
+
+        if (tokenClass != null) {
+            log.info("debug no null");
+            authRepository.saveToken(user);
+        }
+        else {
+            return "no okay";
+        }
+
+        log.info("ktfc_result2: {}, {}, {}, {}, {}, {}", tokenClass.access_token, tokenClass.refresh_token, tokenClass.token_type, tokenClass.expires_in, tokenClass.user_seq_no, tokenClass.scope);
+        return "okay";
+    }
+
     @GetMapping("/account/list")
     public String GetAccountList () {
         AuthData user = authRepository.findUser(CLIENT_ID);
@@ -134,7 +159,7 @@ public class SendAuth {
         for (UserAccountInfoList list : res_list) {
             accountList.setUser_id(CLIENT_ID);
             accountList.setFintech_use_num(list.fintech_use_num);
-            log.info("ktfc_result4 {}, {}, {} {}", list.fintech_use_num, list.account_alias, list.bank_name, list.account_holder_name);
+            log.info("ktfc_result4 {}, {}, {} {} {} {}", list.fintech_use_num, list.account_alias, list.bank_name, list.account_holder_name, list.account_num_masked, list.account_holder_name);
         }
 
         //잠시막음 이것도 로직에 따라 잘 만들어야겠다
@@ -143,7 +168,7 @@ public class SendAuth {
         return "okay";
     }
 
-    @GetMapping("/balance")
+    @GetMapping("/account/balance")
     public String getBalance() {
 
         AuthData user = authRepository.findUser(CLIENT_ID);
@@ -159,7 +184,7 @@ public class SendAuth {
         // 계좌 잔액 조회
         // 이런 날짜까지도 에러처리를 해야하네. 에러처리가 굉장히 세심해야되네... 그냥 막실행하네
         String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String tran_id = "M202202183U" + getRandomStr(9);
+        String tran_id = "M202202188U" + getRandomStr(9);
         log.info("tran_debug: {}", tran_id);
 
         MultiValueMap<String, String> params2 = new LinkedMultiValueMap<>();
