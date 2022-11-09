@@ -30,8 +30,8 @@ import java.util.Random;
 @RequiredArgsConstructor
 public class SendAuth {
 
-    private String CLIENT_ID = "c02f89fe-c2c8-439f-bdd8-e68c4dded376";
-    private String CLIENT_SECRET = "afe2363b-f9e3-42f9-9a1b-c029248fed3b";
+    private String CLIENT_ID = "****";
+    private String CLIENT_SECRET = "****";
 
     AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(WebClientConfig.class);
     WebClient webClient = (WebClient) ac.getBean("webClient");
