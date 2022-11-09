@@ -30,8 +30,8 @@ import java.util.Random;
 @RequiredArgsConstructor
 public class SendAuth {
 
-    private String CLIENT_ID = "****";
-    private String CLIENT_SECRET = "****";
+    private String CLIENT_ID = "c02f89fe-c2c8-439f-bdd8-e68c4dded376";
+    private String CLIENT_SECRET = "afe2363b-f9e3-42f9-9a1b-c029248fed3b";
 
     AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(WebClientConfig.class);
     WebClient webClient = (WebClient) ac.getBean("webClient");
@@ -134,10 +134,11 @@ public class SendAuth {
         for (UserAccountInfoList list : res_list) {
             accountList.setUser_id(CLIENT_ID);
             accountList.setFintech_use_num(list.fintech_use_num);
-            log.info("ktfc_result4 {}, {}, {}", list.fintech_use_num, list.account_alias, list.bank_name);
+            log.info("ktfc_result4 {}, {}, {} {}", list.fintech_use_num, list.account_alias, list.bank_name, list.account_holder_name);
         }
 
-        accountRepository.saveAccount(accountList);
+        //잠시막음 이것도 로직에 따라 잘 만들어야겠다
+        //accountRepository.saveAccount(accountList);
 
         return "okay";
     }
@@ -158,7 +159,7 @@ public class SendAuth {
         // 계좌 잔액 조회
         // 이런 날짜까지도 에러처리를 해야하네. 에러처리가 굉장히 세심해야되네... 그냥 막실행하네
         String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String tran_id = "M202202182U" + getRandomStr(9);
+        String tran_id = "M202202183U" + getRandomStr(9);
         log.info("tran_debug: {}", tran_id);
 
         MultiValueMap<String, String> params2 = new LinkedMultiValueMap<>();
