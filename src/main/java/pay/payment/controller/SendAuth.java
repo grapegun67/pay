@@ -1,5 +1,8 @@
 package pay.payment.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -14,34 +17,43 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.client.WebClient;
 import pay.payment.WebClientConfig;
-import pay.payment.domain.ClientAuthData;
-import pay.payment.repository.HandleAuthRepository;
+import pay.payment.domain.AuthData;
+import pay.payment.domain.AccountList;
+import pay.payment.repository.AccountRepository;
+import pay.payment.repository.AuthRepository;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 @Slf4j
 @RestController
 @RequiredArgsConstructor
 public class SendAuth {
 
-    private String CLIENT_ID = "****";
-    private String CLIENT_SECRET = "****";
+    private String CLIENT_ID = "6b824189-c46f-482f-a85d-7c317833c586";
+    private String CLIENT_SECRET = "9ea21326-1ac8-47af-8ab1-4d8075865b41";
+    private String SEQN = "M202202188U";
 
     AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(WebClientConfig.class);
     WebClient webClient = (WebClient) ac.getBean("webClient");
 
-    private final HandleAuthRepository handleAuthRepository;
+    private final AuthRepository authRepository;
+    private final AccountRepository accountRepository;
 
-    @GetMapping("/auth-function")
-    public Mono<ResponseEntity<String>> authFunction() {
+    @GetMapping("/auth/gate")
+    public Mono<ResponseEntity<String>> authGate() {
 
         MultiValueMap<String, String > params = new LinkedMultiValueMap<>();
         params.add("response_type", "code");
         params.add("client_id", CLIENT_ID);
-        params.add("redirect_uri", "http://localhost:8080/auth-return");
-        params.add("scope", "login inquiry");
-        params.add("state", "9876543245671234utrg986fff235245");
+        params.add("redirect_uri", "http://localhost:8080/auth/gate/new");
+        params.add("scope", "login inquiry transfer");
+        params.add("state", "9876543245671234utag986fff235245");
         params.add("auth_type", "0");
 
         // toEntity에서 body로 바꾸면 헤더까지는 굳이 response 안해도될지도
@@ -52,16 +64,19 @@ public class SendAuth {
        return responseEntityMono;
     }
 
-    @GetMapping("/auth-return")
-    public String getAuth(@ModelAttribute AuthClass authClass){
-
+    @GetMapping("/auth/gate/new")
+    public String getMain(@ModelAttribute AuthClass authClass) {
         log.info("ktfc_result1: {}, {}, {}", authClass.getCode(), authClass.getScope(), authClass.getState());
 
+        AuthData user = new AuthData();
         MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+
+        /* 신규 요청 */
+        log.info("debug_new register");
         formData.add("code", authClass.getCode());
         formData.add("client_id", CLIENT_ID);
         formData.add("client_secret", CLIENT_SECRET);
-        formData.add("redirect_uri", "http://localhost:8080/auth-return");
+        formData.add("redirect_uri", "http://localhost:8080/auth/gate/new");
         formData.add("grant_type", "authorization_code");
 
         TokenClass tokenClass = webClient.post()
@@ -71,29 +86,200 @@ public class SendAuth {
                 .retrieve().bodyToMono(TokenClass.class).block();
 
         //토큰 저장
-        ClientAuthData clientAuthData = new ClientAuthData();
-        clientAuthData.setId(CLIENT_ID);
-        clientAuthData.setAccess_token(tokenClass.access_token);
-        clientAuthData.setRefresh_token(tokenClass.refresh_token);
-        clientAuthData.setUser_seq_no(tokenClass.user_seq_no);
+        user.setId(CLIENT_ID);
+        user.setAccess_token(tokenClass.access_token);
+        user.setRefresh_token(tokenClass.refresh_token);
+        user.setUser_seq_no(tokenClass.user_seq_no);
 
-        handleAuthRepository.saveToken(clientAuthData);
+        if (tokenClass != null) {
+            log.info("debug no null");
+            authRepository.saveToken(user);
+        }
+        else {
+            return "no okay";
+        }
 
         log.info("ktfc_result2: {}, {}, {}, {}, {}, {}", tokenClass.access_token, tokenClass.refresh_token, tokenClass.token_type, tokenClass.expires_in, tokenClass.user_seq_no, tokenClass.scope);
 
-        String bear = "Bearer " + tokenClass.access_token;
+        return "ok";
+    }
+
+    @GetMapping("/auth/gate/old")
+    public String AuthGateOld() {
+        log.info("debug_update register");
+
+        AuthData user = authRepository.findUser(CLIENT_ID);
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+
+        /* 토큰 갱신 요청                         */
+        formData.add("client_id", CLIENT_ID);
+        formData.add("client_secret", CLIENT_SECRET);
+        formData.add("refresh_token", user.getRefresh_token());
+        formData.add("scope", "login inquiry transfer");
+        formData.add("grant_type", "refresh_token");
+
+        // webclient 비동기적 사용은 나중에 더 알아봐야함
+        TokenClass tokenClass = webClient.post()
+                .uri("/oauth/2.0/token")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .bodyValue(formData)
+                .retrieve().bodyToMono(TokenClass.class).block();
+
+        //토큰 저장
+        user.setId(CLIENT_ID);
+        user.setAccess_token(tokenClass.access_token);
+        user.setRefresh_token(tokenClass.refresh_token);
+        user.setUser_seq_no(tokenClass.user_seq_no);
+
+        if (tokenClass.access_token != null) {
+            log.info("debug no null");
+            authRepository.saveToken(user);
+        }
+        else {
+            return "no okay";
+        }
+
+        log.info("ktfc_result2: {}, {}, {}, {}, {}, {}", tokenClass.access_token, tokenClass.refresh_token, tokenClass.token_type, tokenClass.expires_in, tokenClass.user_seq_no, tokenClass.scope);
+        return "okay";
+    }
+
+    @GetMapping("/account/list")
+    public String GetAccountList () {
+        AuthData user = authRepository.findUser(CLIENT_ID);
+        if (user == null)
+            return "no okay";
+
+        String bear = "Bearer " + user.getAccess_token();
 
         //계좌 조회
         UserAccountInfo accountInfo = webClient.get()
                 .uri(uriBuilder -> uriBuilder.path("v2.0/user/me")
-                        .queryParam("user_seq_no", tokenClass.user_seq_no).build()).header("Authorization", bear).retrieve().bodyToMono(UserAccountInfo.class).block();
+                        .queryParam("user_seq_no", user.getUser_seq_no()).build()).header("Authorization", bear).retrieve().bodyToMono(UserAccountInfo.class).block();
 
         log.info("ktfc_result3 {}, {}, {}", accountInfo.res_cnt, accountInfo.user_name, accountInfo.api_tran_id);
 
         List<UserAccountInfoList> res_list = accountInfo.getRes_list();
+        AccountList accountList = new AccountList();
+
+        /* 새로운 fintech 번호만 넣는 것으로 수정해야함 */
         for (UserAccountInfoList list : res_list) {
-            log.info("ktfc_result4 {}, {}, {}", list.fintech_use_num, list.account_alias, list.bank_name);
+            accountList.setUser_id(CLIENT_ID);
+            accountList.setFintech_use_num(list.fintech_use_num);
+            log.info("ktfc_result4 {}, {}, {} {} {} {}", list.fintech_use_num, list.account_alias, list.bank_name, list.account_holder_name, list.account_num_masked, list.account_holder_name);
         }
+
+        //잠시막음 이것도 로직에 따라 잘 만들어야겠다
+        //한 사용자가 여러은행을 오픈뱅킹으로 등록했을 때 처리가 필요해
+        //accountRepository.saveAccount(accountList);
+
+        return "okay";
+    }
+
+    @GetMapping("/account/balance")
+    public String getBalance() {
+
+        AuthData user = authRepository.findUser(CLIENT_ID);
+        if (user == null)
+            return "no okay1";
+
+        List<AccountList> accountList = accountRepository.findAccount(CLIENT_ID);
+        if (accountList == null)
+            return "no okay2";
+
+        String bear = "Bearer " + user.getAccess_token();
+
+        //여러 라이브러리 중에서 왜 LocalDateTime을 썻는지 등을 설명할 수 있어야함
+        //이런 날짜까지도 에러처리를 해야하네. 에러처리가 굉장히 세심해야되네... 그냥 막실행하네
+        String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String tran_id = SEQN + getRandomStr(9);
+        log.info("tran_debug: {}", tran_id);
+
+        /* 자바 자료구조 및 알고리즘 연습 필요 */
+        MultiValueMap<String, String> params2 = new LinkedMultiValueMap<>();
+        params2.add("bank_tran_id", tran_id);
+        params2.add("fintech_use_num", accountList.get(0).getFintech_use_num());
+        params2.add("tran_dtime", dateTime);
+
+        // 계좌 잔액 조회
+        AccountBalance balance = webClient.get()
+                .uri(uriBuilder -> uriBuilder.path("v2.0/account/balance/fin_num")
+                        .queryParams(params2).build()).header("Authorization", bear).retrieve().bodyToMono(AccountBalance.class).block();
+
+        log.info("ktfc_result6 {}, {}, {}, {}", balance.bank_name, balance.balance_amt, balance.product_name, balance.bank_rsp_message);
+
+        return "okay";
+    }
+
+    @GetMapping("/account/withdraw")
+    public String AccountWithdraw() throws JsonProcessingException {
+
+        AuthData user = authRepository.findUser(CLIENT_ID);
+        if (user == null)
+            return "no okay1";
+
+        List<AccountList> accountList = accountRepository.findAccount(CLIENT_ID);
+        if (accountList == null)
+            return "no okay2";
+
+        String bear = "Bearer " + user.getAccess_token();
+
+        //출금 요청
+        String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String tran_id = SEQN + getRandomStr(9);
+        log.info("tran_debug: {}", tran_id);
+
+        //이용기관의 출금계좌, 입금계좌 정보가 담겨있는 테이블을 생성해야 밑에 JSON에 약정계좌 관련된 데이터를 넣을 수 있음
+        Map<String, String> params2 = new HashMap<>();
+
+        /**
+         * 이용기관 약정계좌 정보
+         * 이용기관의 출금계좌를 넣어주면 됨
+         * 이용기관이 입출금을 대리해주는 것인데, 이 때 약정계좌를 중간계좌로 사용하는 것으로 보임
+         */
+        params2.put("bank_tran_id", tran_id);
+        params2.put("cntr_account_type", "N");
+        params2.put("cntr_account_num", "100000000001");
+
+        /* 출금 요청 고객 정보*/
+        params2.put("dps_print_content", "쇼핑몰환불");
+        params2.put("fintech_use_num", accountList.get(0).getFintech_use_num());
+        params2.put("wd_print_content", "오픈뱅킹출금");
+        params2.put("tran_amt", "10001");
+        params2.put("tran_dtime", dateTime);
+        params2.put("req_client_name", "김희건");
+        params2.put("req_client_bank_code", "020");
+        params2.put("req_client_account_num", "987654321");
+        params2.put("req_client_num", "1101015137");
+        params2.put("transfer_purpose", "TR");
+
+        /**
+         * 현재는 이게 정상적으로 동작하지는 않는듯
+         * 피싱 등 금융사고 발생 시 출금기관에서 최종 수취기관으로 지급정지 등 신속한 대응을 하기 위한 정보
+         * 이체용도 필드값이 송금(“TR”) 및 결제(“ST”)인 경우 해당 필드 값을 설정
+         * (단, 모든 이용기관에서 해당 정보 설정이 가능하도록 조치될 때 까지 오픈뱅킹센터는 동 정보를 검증하지 않음)
+         */
+        params2.put("recv_client_name", "토끼사");
+        params2.put("recv_client_bank_code", "097");
+        params2.put("recv_client_account_num", "300000000001");
+
+        //exception도 강의에서 처리하는 방법으로 변경하자
+        ObjectMapper objectMapper = new ObjectMapper();
+        String value = objectMapper.writeValueAsString(params2);
+        log.info("json request: {}", value);
+
+        //post json이면 I/O시에 string 읽어야하는구나. 이게 좀 헷갈리네
+        //x-www-form-urlencoded 인경우는 .bodyValue()에 맵을 그대로 넣어도되었는데, json타입 경우는 string으로 넣어줘야하네
+        String s1 = webClient.post()
+                .uri("/v2.0/transfer/withdraw/fin_num")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", bear)
+                .bodyValue(value)
+                .retrieve().bodyToMono(String.class).block();
+
+        /* json과 webclient를 처리하는 건 더 좋은 방법 or 개선 방법이 있을 거라고 본다 */
+        Map<String, String> returnJson = objectMapper.readValue(s1, new TypeReference<Map<String, String>>() {});
+
+        log.info("{} {} -> $ {} $ -> {} {} 출금요청완료", returnJson.get("account_num_masked"), returnJson.get("bank_name"), returnJson.get("tran_amt"), returnJson.get("dps_bank_name"), returnJson.get("dps_account_num_masked"));
 
         return "ok";
     }
@@ -109,8 +295,8 @@ public class SendAuth {
     static class TokenClass {
         private String access_token;
         private String token_type;
-        private String refresh_token;
         private String expires_in;
+        private String refresh_token;
         private String scope;
         private String user_seq_no;
     }
@@ -148,4 +334,72 @@ public class SendAuth {
         private String  account_type;
     }
 
+    @Getter @Setter
+    static class AccountBalance {
+        private String api_tran_id;
+        private String api_tran_dtm;
+        private String rsp_code;
+        private String rsp_message;
+        private String bank_tran_id;
+        private String bank_tran_date;
+        private String bank_code_tran;
+        private String bank_rsp_code;
+        private String bank_rsp_message;
+        private String bank_name;
+        private String savings_bank_name;
+        private String fintech_use_num;
+        private String balance_amt;
+        private String available_amt;
+        private String account_type;
+        private String product_name;
+        private String account_issue_date;
+        private String maturity_date;
+        private String last_tran_date;
+    }
+
+    static class WithDrawResponse {
+        private String api_tran_id;
+        private String rsp_code;
+        private String rsp_message;
+        private String api_tran_dtm;
+        private String dps_bank_code_std;
+        private String dps_bank_code_sub;
+        private String dps_bank_name;
+        private String dps_account_num_masked;
+        private String dps_print_content;
+        private String dps_account_holder_name;
+        private String bank_tran_id;
+        private String bank_tran_date;
+        private String bank_code_tran;
+        private String bank_rsp_code;
+        private String bank_rsp_message;
+        private String fintech_use_num;
+        private String account_alias;
+        private String bank_code_std;
+        private String bank_code_sub;
+        private String bank_name;
+        private String account_num_masked;
+        private String print_content;
+        private String tran_amt;
+        private String account_holder_name;
+        private String wd_limit_remain_amt;
+        private String savings_bank_name;
+    }
+
+    public static String getRandomStr(int size) {
+        if(size > 0) {
+            char[] tmp = new char[size];
+            for(int i=0; i<tmp.length; i++) {
+                int div = (int) Math.floor( Math.random() * 2 );
+
+                if(div == 0) { // 0이면 숫자로
+                    tmp[i] = (char) (Math.random() * 10 + '0') ;
+                }else { //1이면 알파벳
+                    tmp[i] = (char) (Math.random() * 26 + 'A') ;
+                }
+            }
+            return new String(tmp);
+        }
+        return "ERROR : Size is required.";
+    }
 }
