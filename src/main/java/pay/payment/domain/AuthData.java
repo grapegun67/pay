@@ -18,4 +18,6 @@ public class AuthData {
     private String refresh_token;
     private String user_seq_no;
 
+    @Lob
+    private String oob_access_token;
 }
