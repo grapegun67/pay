@@ -25,10 +25,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 
 @Slf4j
 @RestController
@@ -37,7 +34,7 @@ public class SendAuth {
 
     private String CLIENT_ID = "****";
     private String CLIENT_SECRET = "****";
-    private String SEQN = "****";
+    private String SEQN = "***U";
 
     AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(WebClientConfig.class);
     WebClient webClient = (WebClient) ac.getBean("webClient");
@@ -91,7 +88,7 @@ public class SendAuth {
         user.setRefresh_token(tokenClass.refresh_token);
         user.setUser_seq_no(tokenClass.user_seq_no);
 
-        if (tokenClass != null) {
+        if (tokenClass.access_token != null) {
             log.info("debug no null");
             authRepository.saveToken(user);
         }
@@ -118,7 +115,7 @@ public class SendAuth {
         formData.add("scope", "login inquiry transfer");
         formData.add("grant_type", "refresh_token");
 
-        // webclient 비동기적 사용은 나중에 더 알아봐야함
+        //webclient 비동기적 사용은 나중에 더 알아봐야함
         TokenClass tokenClass = webClient.post()
                 .uri("/oauth/2.0/token")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
@@ -170,7 +167,7 @@ public class SendAuth {
 
         //잠시막음 이것도 로직에 따라 잘 만들어야겠다
         //한 사용자가 여러은행을 오픈뱅킹으로 등록했을 때 처리가 필요해
-        //accountRepository.saveAccount(accountList);
+        accountRepository.saveAccount(accountList);
 
         return "okay";
     }
@@ -258,8 +255,8 @@ public class SendAuth {
          * 이체용도 필드값이 송금(“TR”) 및 결제(“ST”)인 경우 해당 필드 값을 설정
          * (단, 모든 이용기관에서 해당 정보 설정이 가능하도록 조치될 때 까지 오픈뱅킹센터는 동 정보를 검증하지 않음)
          */
-        params2.put("recv_client_name", "토끼사");
-        params2.put("recv_client_bank_code", "097");
+        params2.put("recv_client_name", "아무거나");
+        params2.put("recv_client_bank_code", "022");
         params2.put("recv_client_account_num", "300000000001");
 
         //exception도 강의에서 처리하는 방법으로 변경하자
@@ -279,9 +276,156 @@ public class SendAuth {
         /* json과 webclient를 처리하는 건 더 좋은 방법 or 개선 방법이 있을 거라고 본다 */
         Map<String, String> returnJson = objectMapper.readValue(s1, new TypeReference<Map<String, String>>() {});
 
+        log.info("bear {}", bear);
+
         log.info("{} {} -> $ {} $ -> {} {} 출금요청완료", returnJson.get("account_num_masked"), returnJson.get("bank_name"), returnJson.get("tran_amt"), returnJson.get("dps_bank_name"), returnJson.get("dps_account_num_masked"));
 
         return "ok";
+    }
+
+    @GetMapping("/account/deposit")
+    public String AccountDeposit() throws JsonProcessingException {
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        MultiValueMap<String, String> bodyValue = new LinkedMultiValueMap<>();
+
+        //token 여부 확인
+        AuthData user = authRepository.findUser(CLIENT_ID);
+        if (user.getOob_access_token() == null) {
+            bodyValue.add("client_id", CLIENT_ID);
+            bodyValue.add("client_secret", CLIENT_SECRET);
+            bodyValue.add("scope", "oob");
+            bodyValue.add("grant_type", "client_credentials");
+
+            String json = webClient.post()
+                    .uri("/oauth/2.0/token")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .bodyValue(bodyValue)
+                    .retrieve().bodyToMono(String.class).block();
+
+            log.info("oob token {}", json);
+            //에러처리 어떻게 할거니
+            Map<String, String> returnJson = objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
+
+            //oob token 저장
+            user.setOob_access_token(returnJson.get("access_token"));
+            authRepository.saveToken(user);
+        }
+
+        List<AccountList> account = accountRepository.findAccount(CLIENT_ID);
+
+        //입금요청 진행 (withdraw도 출금이아니라 출금요청이구나)
+        String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+        WithdrawRequestSubList withdrawRequestSubList = new WithdrawRequestSubList();
+        withdrawRequestSubList.setTran_no("1");
+        withdrawRequestSubList.setBank_tran_id(SEQN + getRandomStr(9));
+        withdrawRequestSubList.setFintech_use_num(account.get(0).getFintech_use_num());
+        withdrawRequestSubList.setPrint_content("쇼핑몰환불");
+        withdrawRequestSubList.setTran_amt("10000");
+        withdrawRequestSubList.setReq_client_name("김희건");
+        withdrawRequestSubList.setReq_client_bank_code("020");
+        withdrawRequestSubList.setReq_client_account_num("987654321");
+        withdrawRequestSubList.setReq_client_num("1101015137");
+        withdrawRequestSubList.setTransfer_purpose("TR");
+
+        List<WithdrawRequestSubList> withdrawRequestSubListList = new ArrayList<>();
+        withdrawRequestSubListList.add(withdrawRequestSubList);
+
+        WithdrawRequestClass withdrawRequestClass = new WithdrawRequestClass();
+        withdrawRequestClass.setCntr_account_type("N");
+        withdrawRequestClass.setCntr_account_num("200000000001");
+        withdrawRequestClass.setWd_pass_phrase("NONE");
+        withdrawRequestClass.setWd_print_content("환불금액");
+        //수취인서명 확인 등 보안적인 필드는 제외하고 호출하는 상황임. 이런부분들도 보완이 필요함
+        withdrawRequestClass.setName_check_option("off");
+        withdrawRequestClass.setTran_dtime(dateTime);
+        withdrawRequestClass.setReq_cnt("1");
+        withdrawRequestClass.setReq_list(withdrawRequestSubListList);
+
+        String value = objectMapper.writeValueAsString(withdrawRequestClass);
+        log.info("json request: {}", value);
+
+        String oob_bear = "Bearer " + user.getOob_access_token();
+
+        String returnJson = webClient.post()
+                .uri("/v2.0/transfer/deposit/fin_num")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", oob_bear)
+                .bodyValue(value)
+                .retrieve().bodyToMono(String.class).block();
+
+        log.info("ret json: {}", returnJson);
+
+        WithdrawResponseClass readValue = objectMapper.readValue(returnJson, WithdrawResponseClass.class);
+
+        //json에서 해당 객체가 없으면 오류가 발생하네. 이것도 에러처리가 필요해보이는데...
+        log.info("{} {} -> $ {} $ -> {}로 인한 {} {} 출금 성공", readValue.wd_bank_name, readValue.wd_account_holder_name, readValue.res_list.get(0).tran_amt, readValue.res_list.get(0).print_content, readValue.res_list.get(0).bank_name, readValue.res_list.get(0).account_holder_name);
+        return "okay";
+    }
+
+    @Getter @Setter
+    static class WithdrawRequestClass {
+            private String cntr_account_type;
+            private String cntr_account_num;
+            private String wd_pass_phrase;
+            private String wd_print_content;
+            private String name_check_option;
+            private String tran_dtime;
+            private String req_cnt;
+            private List<WithdrawRequestSubList> req_list;
+    }
+
+    @Getter @Setter
+    static class WithdrawRequestSubList {
+        private String tran_no;
+        private String bank_tran_id;
+        private String fintech_use_num;
+        private String print_content;
+        private String tran_amt;
+        private String req_client_name;
+        private String req_client_bank_code;
+        private String req_client_account_num;
+        private String req_client_num;
+        private String transfer_purpose;
+    }
+
+    @Getter @Setter
+    static class WithdrawResponseClass {
+        private String api_tran_id;
+        private String rsp_code;
+        private String rsp_message;
+        private String api_tran_dtm;
+        private String wd_bank_code_std;
+        private String wd_bank_code_sub;
+        private String wd_bank_name;
+        private String wd_account_num_masked;
+        private String wd_print_content;
+        private String wd_account_holder_name;
+        private String res_cnt;
+        private List<WithdrawResponseSubList> res_list;
+    }
+
+    @Getter @Setter
+    static class WithdrawResponseSubList {
+        private String tran_no;
+        private String bank_tran_id;
+        private String bank_tran_date;
+        private String bank_code_tran;
+        private String bank_rsp_code;
+        private String bank_rsp_message;
+        private String fintech_use_num;
+        private String account_alias;
+        private String bank_code_std;
+        private String bank_code_sub;
+        private String account_num_masked;
+        private String bank_name;
+        private String print_content;
+        private String account_holder_name;
+        private String tran_amt;
+        private String cms_num;
+        private String savings_bank_name;
+        private String withdraw_bank_tran_id;
     }
 
     @Getter @Setter
